@@ -1,133 +1,165 @@
 const dotenv = require("dotenv");
 const { Client, GatewayIntentBits, userMention, roleMention, TextInputStyle } = require('discord.js');
+const mongoose = require('mongoose');
 const axios = require('axios');
 const path = require('path');
 const schedule = require('node-schedule')
-const { Connection, PublicKey } = require('@solana/web3.js');
-const { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddress, getMint, getAccount, getOrCreateAssociatedTokenAccount } = require('@solana/spl-token');
 
 dotenv.config();
-
-const SUPPLY = 420000069;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const channelId = process.env.PRICE_CHANNEL;
 
-// Initialize Solana connection and wallet
-const SOLANA_NETWORK = "https://api.mainnet-beta.solana.com"; // Mainnet endpoint
-const connection = new Connection(SOLANA_NETWORK);
 
-client.once('ready', async () => {
-  // console.log(`Logged in as ${client.user.tag}`);
-  // updateBotTitleAndStatus();
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  updateBotTitleAndStatus();
+  // postTokenPrice();
 
-  // schedule.scheduleJob('0 * * * *', () => {
-  //     const now = new Date();
-  //     if (now.getUTCHours() === 0) {
-  //         updateBotTitleAndStatus();
-  //         postNewDayMessage();
-  //         postBigPriceChanged();
-  //         searchPool();
-  //     } else {
-  //         updateBotTitleAndStatus();
-  //     }
-  // })
-
-  // schedule.scheduleJob('30 * * * *', () => {
-  //     postTokenPrice();
-  // })
-  // var url = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd";
-
-  // const response = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd`); // Replace with the actual API URL
-
-  // console.log(response);
-  // getEthTopCollections()
-  getBtcTopCollections()
+  schedule.scheduleJob('59 * * * *', () => {
+    postTokenPrice();
+  })
 });
 
-async function getEthTopCollections() {
-  const url = `https://api-mainnet.magiceden.dev/v3/rtp/ethereum/collections/trending/v1?period=1h&limit=50&sortBy=sales&normalizeRoyalties=false&useNonFlaggedFloorAsk=false`;
+async function updateBotTitleAndStatus() {
+  try {
+    // Update bot's display name 
+    await client.user.setUsername(`Sales Alert`);
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      accept: '*/*',
-      Authorization: 'Bearer '
-    },
-  });
+    // Update bot's custom status
+    client.user.setActivity(`Sol | Btc | Eth | Pol | Base`, { type: 4 })
 
-  console.log(response)
-
-  return response;
+  } catch (error) {
+    console.error("Error updating bot title and status:", error);
+  }
 }
 
-async function getBtcTopCollections() {
-  // const url = 'https://api-mainnet.magiceden.dev/collection_stats/search/bitcoin?window=1h&sort=sales&direction=desc&offset=0&limit=100' ; 
-
-  // const response = await fetch(url, {
-  //   method: "GET",
-  //   headers: {
-  //     "Content-Type": "application/json",
-  //   },
-  // });
-
-  // console.log(response)
-
-  // return response;
-
-  const options = {
-    method: 'GET',
-    url: 'https://api-mainnet.magiceden.dev/collection_stats/search/bitcoin?window=1h&sort=sales&direction=desc&offset=0&limit=100'
-  };
-
-  axios
-    .request(options)
-    .then(function (response) {
-      console.log(response.data);
-    })
-    .catch(function (error) {
-      console.error(error);
-    });
-}
-
-async function postNewHourlyMessage() {
+async function postTokenPrice() {
   const channel = client.channels.cache.get(channelId);
   if (!channel) return console.error("Channel not found");
 
-  const price = await getTokenPrice();
-  const supply = await getTokenSupply();
-  const change = await getPriceChangeRate();
-  const mcap = supply * price;
-  const holders = await getTokenHolders();
-  console.log('price ===> ', price, 'supply ===> ', supply, 'market cap ===> ', price * supply, 'holders ===> ', holders);
-  await searchPool();
+  const sol = (await axios.post('http://localhost:8000/api/v1/magiceden', { coin: 'solana' })).data.message;
+  const btc = (await axios.post('http://localhost:8000/api/v1/magiceden', { coin: 'bitcoin' })).data.message;
+  const eth = (await axios.post('http://localhost:8000/api/v1/magiceden', { coin: 'ethereum' })).data.message;
+  const pol = (await axios.post('http://localhost:8000/api/v1/magiceden', { coin: 'polygon' })).data.message;
+  const base = (await axios.post('http://localhost:8000/api/v1/magiceden', { coin: 'base' })).data.message;
 
-  if (!price) return;
+  console.log(sol)
+  console.log(btc)
+  console.log(eth)
+  console.log(pol)
+  console.log(base)
 
-  // const embed = {
-  //     color: 0x00ff99,
-  //     title: '**$TOKE - Mycelium McToken**',
-  //     description: `$TOKE is DePIN's very own memecoin and liquidity token with 100% of supply airdropped and a community-run DAO.\n
-  //                     **Price:**
-  //                     1 - **$${price.toFixed(5)}** - ${roleMention("1219295859049500704")} - [# :hamburger: | mctoken](https://discord.com/channels/1217921180195880970/1217972542569189436/)
-  //                     1m - **$${(price * 1000000).toFixed(0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}** - ${roleMention("1219295965710909572")} - [# :moneybag: | mcmillionaire](https://discord.com/channels/1217921180195880970/1217972663809605642/)
-  //                     5m - **$${(price * 5000000).toFixed(0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}** - ${roleMention("1219296054042820630")} - [# :whale: | mcwhale](https://discord.com/channels/1217921180195880970/1217949779493916883/)\n
-  //                     **Info:**
-  //                     Mkt Cap - **$${mcap.toFixed(0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}**
-  //                     Supply - **${supply.toFixed(3).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")} (${change.supplyChange.toFixed(3)}%:fire:)**
-  //                     Holders - **${holders.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}**`,
-  //     thumbnail: {
-  //         url: `attachment://token-avatar.png`
-  //     }
-  // };
+  const solData = await removeNoise(sol, 'SOL');
+  const btcData = await removeNoise(btc, 'BTC');
+  const ethData = await removeNoise(eth, 'ETH');
+  const polData = await removeNoise(pol, 'POL');
+  const baseData = await removeNoise(base, 'ETH');
 
-  // await channel.send({
-  //     embeds: [embed],
-  //     files: [{ attachment: path.join(__dirname, 'assets', 'token-avatar.png'), name: 'token-avatar.png' }]
-  // });
+  console.log(solData)
+  console.log(btcData)
+  console.log(ethData)
+  console.log(polData)
+  console.log(baseData)
 
-  await channel.send(`<:MoonMan_upgrade_Helm:1269655486303698955> **DAILY PRICE SUMMARY**\n\n:hamburger: **$${price.toFixed(5)}** - 1 $TOKE\n:moneybag: **$${(price * 1000000).toFixed(2).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}** - 1m $TOKE\n:whale: **$${(price * 5000000).toFixed(2).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}** - 5m $TOKE\n\n:chart_with_upwards_trend: **$${mcap.toFixed(0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}** - Market Cap\n:coin: **${supply.toFixed(3).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}** - Max Supply\n:fire: **${change.supplyChange.toFixed(3)}%** - Burned\n:man_astronaut: **${holders.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}** - Holders`);
+  let listOfSol = '';
+  for (let i = 0; i < solData.length; i++) {
+    listOfSol = listOfSol.concat(`:coin: ${i+1}) **${solData[i][0].substring(1, solData[i][0].length)}** with **${solData[i][5]}** sales.  Floor price is **${solData[i][1]}**\n`);
+  }
+
+  const processedBtcData = await proceeBtc(btcData);
+  let listOfBtc = '';
+  for (let i = 0; i < processedBtcData.length; i++) {
+    listOfBtc = listOfBtc.concat(`:coin: ${i+1}) **${processedBtcData[i][0].substring(1, processedBtcData[i][0].length)}** with **${processedBtcData[i][4]}** sales and **${processedBtcData[i][5]}** pending for sale. Floor price is **${processedBtcData[i][1]}**.\n`);
+  }
+  console.log(listOfBtc)
+
+  let listOfEth = '';
+  for (let i = 0; i < ethData.length; i++) {
+    listOfEth = listOfEth.concat(`:coin: ${i+1}) **${ethData[i][0].substring(1, ethData[i][0].length)}** with **${ethData[i][5]}** sales.  Floor price is **${ethData[i][1]}**\n`);
+  }
+
+  let listOfPol = '';
+  for (let i = 0; i < polData.length; i++) {
+    listOfPol = listOfPol.concat(`:coin: ${i+1}) **${polData[i][0].substring(1, polData[i][0].length)}** with **${polData[i][5]}** sales.  Floor price is **${polData[i][1]}**\n`);
+  }
+
+  let listOfBase = '';
+  for (let i = 0; i < baseData.length; i++) {
+    listOfBase = listOfBase.concat(`:coin: ${i+1}) **${baseData[i][0].substring(1, baseData[i][0].length)}** with **${baseData[i][5]}** sales.  Floor price is **${baseData[i][1]}**\n`);
+  }
+
+  const embed = {
+    color: 0x0099ff,
+    title: '**Magiceden - Top Sales Collections**',
+    description: `**Solana**
+    ${listOfSol}\n
+    **Bitcoin**
+    ${listOfBtc}\n
+    **Ethereum**
+    ${listOfEth}\n
+    **Polygon**
+    ${listOfPol}\n
+    **Base**
+    ${listOfBase}`,
+    thumbnail: {
+      url: `attachment://avatar.png`
+    }
+  };
+
+  await channel.send({
+    embeds: [embed],
+    files: [{ attachment: path.join(__dirname, 'assets', 'avatar.png'), name: 'avatar.png' }]
+  });
+
+  // await channel.send(``);
+}
+
+async function proceeBtc(data) {
+  data.forEach(subArray => {
+    let salesAmount = subArray[4];
+    let pendingAmount = subArray[5];
+    let temp = subArray[5].slice();
+
+    // Check if there is "pending" in sales amount and process the item
+    if (salesAmount.includes('pending')) {
+      
+      let sales = salesAmount.split(' ')[0];
+      let pending = pendingAmount;
+
+      // Perform the "string minus" operation
+      let correctedAmount = sales.slice(0, sales.length - pending.length);
+
+      // Update the subArray with the new corrected value
+      subArray[4] = `${correctedAmount}`;
+      subArray[5] = `${temp}`
+
+      // Optionally log the change
+      console.log(`Updated subArray: ${subArray[4]}`);
+    }
+  });
+
+  return data;
+}
+
+async function removeNoise(data, substring) {
+  data.forEach(subArray => {
+    let name = subArray[0];
+    let price = subArray[1];
+
+    // Check if there is "pending" in sales amount and process the item
+    if (name.includes('%')) {
+      
+      let realName = name.slice(0, name.length - 4);
+      subArray[0] = realName;
+
+    }
+
+    const temp = subArray[1].split(substring)[0];
+    subArray[1] = temp.concat(substring);
+  });
+
+  return data;
 }
 
 async function startBot() {
